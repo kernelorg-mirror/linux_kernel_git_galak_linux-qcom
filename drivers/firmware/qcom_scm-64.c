@@ -83,7 +83,6 @@ static DEFINE_MUTEX(qcom_scm_lock);
 #define N_REGISTER_ARGS (MAX_QCOM_SCM_ARGS - N_EXT_QCOM_SCM_ARGS + 1)
 #define SMC64_MASK 0x40000000
 #define SMC_ATOMIC_MASK 0x80000000
-#define IS_CALL_AVAIL_CMD 1
 
 static int qcom_scm_remap_error(int err)
 {
@@ -421,7 +420,42 @@ void __qcom_scm_cpu_power_down(u32 flags)
 	qcom_scm_call_atomic(QCOM_SCM_SVC_BOOT, QCOM_SCM_CMD_TERMINATE_PC, &desc);
 }
 
-#define QCOM_SCM_SVC_INFO              0x6
+int __qcom_scm_is_call_available(u32 svc_id, u32 cmd_id)
+{
+	int ret;
+	struct qcom_scm_desc desc = {0};
+
+	desc.arginfo = QCOM_SCM_ARGS(1);
+	desc.args[0] = QCOM_SCM_SIP_FNID(svc_id, cmd_id);
+
+	ret = qcom_scm_call(QCOM_SCM_SVC_INFO, QCOM_IS_CALL_AVAIL_CMD, &desc);
+
+	if (ret)
+		return ret;
+
+	return desc.ret[0];
+}
+
+int __qcom_scm_hdcp_req(struct qcom_scm_hdcp_req *req, u32 req_cnt, u32 *resp)
+{
+	int ret, i, j;
+	struct qcom_scm_desc desc = {0};
+
+	if (req_cnt > QCOM_SCM_HDCP_MAX_REQ_CNT)
+		return -ERANGE;
+
+	for (i = 0, j = 0; i < req_cnt; i++) {
+		desc.args[j++] = req[i].addr;
+		desc.args[j++] = req[i].val;
+	}
+	desc.arginfo = QCOM_SCM_ARGS(j);
+
+	ret = qcom_scm_call(QCOM_SCM_SVC_HDCP, QCOM_SCM_CMD_HDCP, &desc);
+	*resp = desc.ret[0];
+
+	return ret;
+}
+
 static int __init qcom_scm_init(void)
 {
 	int ret;
@@ -429,7 +463,8 @@ static int __init qcom_scm_init(void)
 
 	/* First try a SMC64 call */
 	qcom_scm_version = QCOM_SCM_ARMV8_64;
-	x0 = QCOM_SCM_SIP_FNID(QCOM_SCM_SVC_INFO, IS_CALL_AVAIL_CMD) | SMC_ATOMIC_MASK;
+	x0 = QCOM_SCM_SIP_FNID(QCOM_SCM_SVC_INFO, QCOM_IS_CALL_AVAIL_CMD);
+	x0 |= SMC_ATOMIC_MASK;
 	ret = __qcom_scm_call_armv8_64(x0 | SMC64_MASK, QCOM_SCM_ARGS(1), x0, 0, 0, 0,
 				  &ret1, NULL, NULL);
 	if (ret || !ret1) {
